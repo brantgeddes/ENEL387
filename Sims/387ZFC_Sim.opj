@@ -1,0 +1,17 @@
+(ExpressProject "387ZFC_Sim"
+  (ProjectVersion "19981106")
+  (ProjectType "Analog or A/D Mixed Mode")
+  (Folder "Design Resources"
+    (Folder "Library")
+    (NoModify)
+    (File ".\387zfc_sim.dsn"
+      (Type "Schematic Design"))
+    (BuildFileAddedOrDeleted "x")
+    (CompileFileAddedOrDeleted "x"))
+  (Folder "Outputs")
+  (Folder "PSpice Resources"
+    (Folder "Simulation Profiles")
+    (Folder "Model Libraries")
+    (Folder "Stimulus Files")
+    (Folder "Include Files"))
+  (DefaultLibraryBrowseDirectory "library\PSpice"))

@@ -1,0 +1,5 @@
+* source 387ZFC_SIM
+V_V1         N00116 0  
++SIN 0 14.14 60 0 0 0
+R_R1         0 N00141  1M TC=0,0 
+E_U2         N00141 0 VALUE {LIMIT(V(N00116,0)*1E6,-15V,+15V)}
