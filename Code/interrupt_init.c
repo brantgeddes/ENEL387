@@ -24,9 +24,16 @@ void interrupt_init(void) {
 	EXTI->FTSR |= EXTI_FTSR_TR0;
 	EXTI->RTSR |= EXTI_RTSR_TR0;
 	NVIC->ISER[0] |= NVIC_ISER_SETENA_6; //EXTI0 on PA0
-	
 	NVIC->ISER[0] |= NVIC_ISER_SETENA_18; //ADC1 EOC flag
 	
+}
+
+void disable_zfc(void) {
+	EXTI->IMR &= ~EXTI_IMR_MR0;
+}
+
+void enable_zfc(void) {
+	EXTI->IMR |= EXTI_IMR_MR0;
 }
 
 void SysTick_init(uint32_t counts) {
@@ -36,11 +43,6 @@ void SysTick_init(uint32_t counts) {
 	SysTick->LOAD = counts;
 	SysTick->CTRL |= SysTick_CTRL_ENABLE | SysTick_CTRL_CLKSOURCE | SysTick_CTRL_TICKINT;
 	
-}
-
-void SysTick_Handler(void)  {                               
-	tick++; 
-	mseconds_tick++;
 }
 
 //EOF

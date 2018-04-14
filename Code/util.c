@@ -92,12 +92,5 @@ uint32_t lowpass_filter(uint32_t* samples, uint32_t n) {
 	return filtered_val/good_samples;
 }
 
-/*
-uint32_t lowpass_filter(uint32_t sample, uint32_t average, uint32_t alpha) {
-	
-	return (sample*alpha + (100 - alpha)*average)/100;
-	
-}
-*/
 
 //EOF

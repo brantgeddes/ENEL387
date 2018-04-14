@@ -15,5 +15,7 @@ Author:
 void timer_init(uint16_t prescaler, uint16_t period, uint16_t pulse, uint16_t cycles);
 void timer_pulse(uint16_t pulse);
 void timer_start(void);
+void timer_disable(void);
+void timer_enable(void);
 
 //EOF

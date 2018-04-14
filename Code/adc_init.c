@@ -37,20 +37,20 @@ void adc_init(void) {
 	ADC1->SQR3 |= ADC_SQR3_SQ1_1;
 	
 	//Select channel sample time
-	ADC1->SMPR2 |= ADC_SMPR2_SMP0;
+	ADC1->SMPR2 &= ~ADC_SMPR2_SMP0;
 	
 	//Continuous conversion
 	//ADC1->CR2 |= ADC_CR2_CONT;
 	
 	//Start ADC
-	ADC1->CR2 |= ADC_CR2_ADON;
+	//ADC1->CR2 |= ADC_CR2_ADON;
 	
 }
 
 void adc_start(uint32_t channel) {
 	
-	ADC1->SQR3 = 0x0;
-	ADC1->SQR3 |= ((channel == 2) ? 2 : 3);
+	ADC1->SQR3 &= ~ADC_SQR3_SQ1;
+	ADC1->SQR3 |= ((channel == 2) ? ADC_SQR3_SQ1_1 : (ADC_SQR3_SQ1_1 & ADC_SQR3_SQ1_0));
 	
 	ADC1->CR2 |= ADC_CR2_ADON;
 	

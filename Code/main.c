@@ -1,5 +1,4 @@
 
-#include "util.h"
 #include "clock_init.h"
 #include "io_init.h"
 #include "lcd_init.h"
@@ -7,13 +6,9 @@
 #include "timer_init.h"
 #include "interrupt_init.h"
 
-const uint32_t LCD_REFRESH = 350; //0.35s
-const uint16_t ZFC_PERIOD = 833;
-const uint32_t CT_TURNS = 1;
-const uint32_t BURDEN_RESISTOR = 1000;
-const uint32_t CT_SPAN = 140;
-const uint32_t CT_ZERO = 300;
-const uint32_t CT_OVERLOAD = 10000;
+const uint32_t LCD_REFRESH = 250; 			//LCD Refresh time (ms)
+const uint32_t LED_REFRESH = 1000;			//LED Flash time (ms)
+const uint16_t ZFC_PERIOD = 833;				//ZFC period (60Hz * 2) (ms) 
 
 typedef enum {
 	no_fault,
@@ -44,27 +39,16 @@ const char fault_strings[9][6] = 	{"      ",
 																	 "EOC_10",
 																	 "EOC_11"};												
 
-typedef struct {
-	uint16_t seconds;
-	uint16_t minutes;
-	uint16_t hours;
-	uint16_t day;
-	uint16_t month;
-	uint16_t year;
-} time_type;
 
 typedef struct {
 	fault_code_type fault_code;
-	time_type timestamp;
 } fault_type;			
 
 typedef enum {
 	init,
 	idle_1,
-	idle_2,
 	run_1,
 	run_2,
-	run_3,
 	faulted
 } menu_state_type;
 menu_state_type menu_state = init;
@@ -77,18 +61,16 @@ menu_set_type menu_set = set;
 
 //ADC variables
 volatile uint32_t adc_channel = 2;
-volatile uint32_t raw_current = 0;
+volatile uint32_t adc_eoc = 1;
 volatile uint32_t raw_setpoint = 0;
 
 //Timing functions and variables
-void time_decode(time_type *time);
 volatile uint32_t tick = 0;
-volatile uint32_t mseconds_tick = 0;
-time_type time;
 
 //Menu functions and variables
 menu_set_type state_change(menu_state_type *menu_state, menu_state_type state);
 uint32_t lcd_last_refresh = 0;
+uint32_t led_last_refresh = 0;
 char lcd_line1[17];
 char lcd_line2[17];
 
@@ -97,15 +79,15 @@ void string_format(char* lcd_line, char* string);
 void setpoint_format(char* lcd_line, uint32_t raw_setpoint);
 void voltage_format(char* lcd_line, uint32_t raw_setpoint);
 void power_format(char* lcd_line, uint32_t raw_setpoint);
-void current_format(char* lcd_line, uint32_t raw_current);
+void current_format(char* lcd_line, uint32_t raw_setpoint);
 void fault_format(char* lcd_line, fault_type fault);
-void timestamp_format(char* lcd_line, time_type* fault_time);
+void empty_format(char* lcd_line);
 
 //Scaling functions
 uint16_t setpoint_scale(uint32_t raw_setpoint);
 
 //Fault functions and variables
-void set_fault(fault_type* fault, time_type time, fault_code_type fault_code);
+void set_fault(fault_type* fault, fault_code_type fault_code);
 fault_type fault;
 
 int main(void) {
@@ -113,71 +95,37 @@ int main(void) {
 	clock_init();
 	io_init();
 	lcd_init();
-	adc_init();
 	timer_init(240, ZFC_PERIOD, 1, 1);
 	interrupt_init();
-	SysTick_init(24000000/1000); //Ticks every 100ms
+	SysTick_init(24000000/1000); //Ticks every ms
+	adc_init();
 	lcd_clear();
 	
 	fault.fault_code = no_fault;
 	
-	time.seconds = 0;
-	time.minutes = 0;
-	time.hours = 0;
-	time.day = 22;
-	time.month = 2;
-	time.year = 2018;
-	
 	while(1) {
 		
-		switch (menu_state) {
+		switch (menu_state) {	//Inputs
 			
 			case init:
 				state_change(&menu_state, idle_1);
-			break;
+				break;
 			
 			case idle_1:
-				
-				string_format(lcd_line1, "Idle            ;");
-				setpoint_format(lcd_line2, raw_setpoint);
 			
-				if (btn_read(0)) {
-						menu_set = state_change(&menu_state, idle_2);
-					} else if (btn_read(1)) {
-						menu_set = state_change(&menu_state, idle_2);
-					} else if (btn_read(2)) {
+				if (btn_read(2)) {
 						menu_set = state_change(&menu_state, run_1);
 				} else {
 					if (btn_read_all()) menu_set = change; else menu_set = set;
 				}
 				
-			break;
-				
-			case idle_2:
-				
-				string_format(lcd_line1, "Time:           ;");
-				timestamp_format(lcd_line2, &time);
-			
-				if (btn_read(0)) {
-						menu_set = state_change(&menu_state, idle_1);
-					} else if (btn_read(1)) {
-						menu_set = state_change(&menu_state, idle_1);
-					} else if (btn_read(2)) {
-						menu_set = state_change(&menu_state, run_1);
-				} else {
-					if (btn_read_all()) menu_set = change; else menu_set = set;
-				}
-				
-			break;
+				break;
 				
 			case run_1:
 				
-				current_format(lcd_line1, raw_current);
-				setpoint_format(lcd_line2, raw_setpoint);
-				
 				if (menu_set) {
 					if (btn_read(0)) {
-						menu_set = state_change(&menu_state, run_3);
+						menu_set = state_change(&menu_state, run_2);
 					} else if (btn_read(1)) {
 						menu_set = state_change(&menu_state, run_2);
 					} else if (btn_read(3)) {
@@ -186,34 +134,13 @@ int main(void) {
 				} else {
 					if (btn_read_all()) menu_set = change; else menu_set = set;
 				}
-			break;
+				break;
 				
 			case run_2:
-				
-				voltage_format(lcd_line1, raw_setpoint);
-				power_format(lcd_line2, raw_setpoint);
 			
 				if (menu_set) {
 					if (btn_read(0)) {
 						menu_set = state_change(&menu_state, run_1);
-					} else if (btn_read(1)) {
-						menu_set = state_change(&menu_state, run_3);
-					} else if (btn_read(3)) {
-						menu_set = state_change(&menu_state, idle_1);
-					}
-				} else {
-					if (btn_read_all()) menu_set = change; else menu_set = set;
-				}
-			break;
-				
-			case run_3:
-				
-				string_format(lcd_line1, "Time:           ;");
-				timestamp_format(lcd_line2, &time);
-			
-				if (menu_set) {
-					if (btn_read(0)) {
-						menu_set = state_change(&menu_state, run_2);
 					} else if (btn_read(1)) {
 						menu_set = state_change(&menu_state, run_1);
 					} else if (btn_read(3)) {
@@ -222,42 +149,117 @@ int main(void) {
 				} else {
 					if (btn_read_all()) menu_set = change; else menu_set = set;
 				}
-			break;
+				break;
 				
 			case faulted:
 				
-				if (fault.fault_code == no_fault) set_fault(&fault, time, EIC_00);
-			
-				fault_format(lcd_line1, fault);
-				timestamp_format(lcd_line2, &time);
-			
-				if (!sw_read(0)) {
-					set_fault(&fault, time, no_fault);
-					menu_set = state_change(&menu_state, idle_1);
-				}
-			break;
+				if (fault.fault_code == no_fault) set_fault(&fault, EIC_00);
+				menu_set = set;
+				break;
 				
 			default:
 				menu_set = state_change(&menu_state, faulted);
-			break;
+				break;
 			
 		}
+	
+		if (sw_read(0) && !(menu_state == faulted)) menu_set = state_change(&menu_state, faulted);	//Fault Test
+		if (sw_read(1) && !(menu_state == faulted)) raw_setpoint = 0xFFFFF;
 		
-		if (sw_read(0) && !(menu_state == faulted)) state_change(&menu_state, faulted);	//Fault Test
-		
-		if (tick >= (lcd_last_refresh + LCD_REFRESH)) {
+		if (raw_setpoint > 0xFFF) {
+			set_fault(&fault, EIC_11);
+			menu_set = state_change(&menu_state, faulted);
+		}
+
+		if (tick >= (lcd_last_refresh + LCD_REFRESH)) { //Menu logic
+			
+			switch (menu_state){
+				
+				case init:
+					break;
+				case idle_1:
+					string_format(lcd_line1, "Idle            ;");
+					setpoint_format(lcd_line2, raw_setpoint);
+					break;
+				case run_1:
+					current_format(lcd_line1, raw_setpoint);
+					setpoint_format(lcd_line2, raw_setpoint);
+					break;
+				case run_2:
+					voltage_format(lcd_line1, raw_setpoint);
+					power_format(lcd_line2, raw_setpoint);
+					break;
+				case faulted:
+					fault_format(lcd_line1, fault);
+					empty_format(lcd_line2);
+					break;
+				default:
+					menu_set = state_change(&menu_state, faulted);
+					break;
+				
+			}
+			
 			if (menu_set == change) lcd_clear();
+			
 			lcd_display(lcd_line1, 0, 0);
 			lcd_display(lcd_line2, 1, 0);
 			lcd_last_refresh = tick;
+			
+			if (tick >= 1000000) {
+				tick = 0;
+				led_last_refresh = 0;
+				lcd_last_refresh = 0;
+			}
+			adc_eoc = 1;
 		}
 		
-		timer_pulse(setpoint_scale(raw_setpoint));
-		time_decode(&time);
+		switch (menu_state) {	//Outputs
+			case init:
+				disable_zfc();
+				timer_disable();
+				break;
+			case idle_1:
+				disable_zfc();
+				timer_disable();
+				adc_start(2);
+				adc_channel = 2;
+				GPIOA->BSRR |= GPIO_BSRR_BS9;
+				break;
+			case run_1:
+				timer_pulse(setpoint_scale(raw_setpoint));	//Changes timer pulse length based on potentiometer
+				enable_zfc();
+				timer_enable();
+				GPIOA->BSRR |= GPIO_BSRR_BR9;
+				break;
+			case run_2:
+				timer_pulse(setpoint_scale(raw_setpoint));	//Changes timer pulse length based on potentiometer
+				enable_zfc();
+				timer_enable();
+				GPIOA->BSRR |= GPIO_BSRR_BR9;
+				break;
+			case faulted:
+				if (tick >= (led_last_refresh + LED_REFRESH)) {
+					GPIOA->ODR ^= GPIO_ODR_ODR9;
+					led_last_refresh = tick;
+				}
+				disable_zfc();
+				timer_disable();
+				break;
+			default:
+				menu_set = state_change(&menu_state, faulted);
+				break;
+			
+		}
+		
+		if (adc_eoc == 1) {	//Starts ADC Conversion
+			raw_setpoint = adc_get();
+			adc_start(2);
+			adc_eoc = 0;
+		}
 		
 	}
 }
-
+//Change menu type, returns menu change
 menu_set_type state_change(menu_state_type *menu_state, menu_state_type state){
 	
 	(*menu_state) = state;
@@ -265,45 +267,9 @@ menu_set_type state_change(menu_state_type *menu_state, menu_state_type state){
 	
 }
 
-void time_decode(time_type *time){
-	
-	static const uint16_t days_in_month[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-	
-	if (mseconds_tick >= 1000) {
-		mseconds_tick = 0;
-		time->seconds++;
-	}
-	
-	if (time->seconds >= 60) {
-		time->seconds = 0;
-		time->minutes++;
-	}
-	
-	if (time->minutes >= 60) {
-		time->minutes = 0;
-		time->hours++;
-	}
-	
-	if (time->hours >= 24) {
-		time->hours = 0;
-		time->day++;
-	}
-	
-	if (time->day >= days_in_month[(time->month) - 1]) {
-		time->day = 0;
-		time->month++;
-	}
-	
-	if (time->month >= 12) {
-		time->month = 1;
-		time->year++;
-	}
-	
-}
 
-void set_fault(fault_type* fault, time_type time, fault_code_type fault_code){
+void set_fault(fault_type* fault, fault_code_type fault_code){
 	fault->fault_code = fault_code;
-	fault->timestamp = time;
 }
 	
 void string_format(char* lcd_line, char* string){
@@ -324,7 +290,7 @@ void setpoint_format(char* lcd_line, uint32_t raw_setpoint){
 		value[3 - i] = (char)((rem % 10) + '0');
 		rem /= 10;		
 	}
-	if ((value[0] == '0') && (value[1] == '0') && setpoint != 0) string[10] = '1';
+	if ((value[0] == '0') && (value[1] == '0') && setpoint > 100) string[10] = '1';
 	string[11] = value[0];
 	string[12] = value[1];
 	string[14] = value[2];
@@ -335,7 +301,7 @@ void setpoint_format(char* lcd_line, uint32_t raw_setpoint){
 
 void voltage_format(char* lcd_line, uint32_t raw_setpoint){
 	
-	uint32_t voltage = ((raw_setpoint * 1200) / 4095);
+	uint32_t voltage = (((0xFFF - raw_setpoint) * 1200) / 4095);
 	char value[3];
 	char string[17] = "Voltage:    XXXV;";
 	
@@ -354,7 +320,7 @@ void voltage_format(char* lcd_line, uint32_t raw_setpoint){
 
 void power_format(char* lcd_line, uint32_t raw_setpoint){
 	
-	uint32_t power = ((raw_setpoint * 1000) / 4095);
+	uint32_t power = (((0xFFF - raw_setpoint) * 400) / 4095);
 	char value[3];
 	char string[17] = "Power:      XXXW;";
 	
@@ -370,37 +336,25 @@ void power_format(char* lcd_line, uint32_t raw_setpoint){
 	for (i = 0; i<17; i++) lcd_line[i] = string[i];
 	
 }
-void current_format(char* lcd_line, uint32_t raw_current){
-	
-	uint32_t i = 0, current = ((raw_current * 3300) / 4095); //Scale in voltage
-	current *= (CT_TURNS * 2000) / BURDEN_RESISTOR;		//Translate to primary current
-	current =  ((current * CT_SPAN) / 100) - CT_ZERO;	//Calibration
+void current_format(char* lcd_line, uint32_t raw_setpoint){
 	
 	char value[3];
 	char string[17] = "Current:   X.XXA;";
+	uint32_t current = (((0xFFF - raw_setpoint) * 360) / 4095);
 	
-	if (current >= CT_OVERLOAD) {
-		
-		string[11] = ' ';
-		string[12] = 'O';
-		string[13] = '/';
-		string[14] = 'L';
-		string[15] = ' ';
-		
-	} else {
-		
-		uint32_t rem = current;
-		for (; i < 4; i++) { 
-			value[3 - i] = (char)((rem % 10) + '0');
-			rem /= 10;		
-		}
-		
-		string[11] = value[0];
-		string[13] = value[1];
-		string[14] = value[2];
+	uint32_t i = 0;
+	uint32_t rem = current;
+	for (; i < 4; i++) { 
+		value[3 - i] = (char)((rem % 10) + '0');
+		rem /= 10;		
 	}
 	
+	string[11] = value[0];
+	string[13] = value[1];
+	string[14] = value[2];
+	
 	for (i = 0; i<17; i++) lcd_line[i] = string[i];
+
 }
 
 void fault_format(char* lcd_line, fault_type fault){
@@ -412,42 +366,11 @@ void fault_format(char* lcd_line, fault_type fault){
 	
 }
 
-void timestamp_format(char* lcd_line, time_type* fault_time) {
-	
+void empty_format(char* lcd_line){
 	uint32_t i = 0;
-	uint16_t minutes = fault_time->minutes;
-	uint16_t hours = fault_time->hours;
-	uint16_t days = fault_time->day;
-	uint16_t months = fault_time->month;
-	uint16_t years = fault_time->year;
-	
-	char string[17] = "MM/DD/YY   HH:MM;";
-	
-	string[12] = (char)((hours % 10) + '0');
-	hours /= 10;
-	string[11] = (char)((hours % 10) + '0');
-	
-	string[15] = (char)((minutes % 10) + '0');
-	minutes /= 10;
-	string[14] = (char)((minutes % 10) + '0');
-	
-	string[4] = (char)((days % 10) + '0');
-	days /= 10;
-	string[3] = (char)((days % 10) + '0');
-	
-	string[1] = (char)((months % 10) + '0');
-	months /= 10;
-	string[0] = (char)((months % 10) + '0');
-	
-	string[7] = (char)((years % 10) + '0');
-	years /= 10;
-	string[6] = (char)((years % 10) + '0');
-	
-	
-	for (; i<17; i++) lcd_line[i] = string[i];
-	
+	for (i = 0; i<17; i++) lcd_line[i] = ' ';
 }
-
+	
 uint16_t setpoint_scale(uint32_t raw_setpoint){
 	
 	return (raw_setpoint * ZFC_PERIOD) / 4095;
@@ -461,17 +384,12 @@ void EXTI0_IRQHandler(void){
 }
 
 void ADC1_IRQHandler(void){
-	if (adc_channel == 2) {
-		raw_setpoint = adc_get();
-		adc_start(3);
-		adc_channel = 3;
-	} else if (adc_channel == 3) {
-		raw_current = adc_get();
-		adc_start(2);
-		adc_channel = 2;
-	} else {
-		adc_channel = 2;
-	}
+	ADC1->SR &= ~ADC_SR_EOC;
+	adc_eoc = 1;
+}
+
+void SysTick_Handler(void)  {                               
+	tick++; 
 }
 
 //EOF
